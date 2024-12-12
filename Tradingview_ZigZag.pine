@@ -1,0 +1,228 @@
+//@version=6
+indicator('ZigZag', 'ZigZag', overlay = true, max_bars_back = 5000)
+
+g0 = '======================⥑ General ⥏======================'
+t02 = 'Zigzag use Wave volume color.\nUp color is used when current Up Wave volume > current Down wave volume. Down color when current Down Wave volume > current Up wave volume.'
+  + '\nDeveloping zigzag use dotted line.'
+
+//-----------------------------------------------------------------------------{
+//Inputs
+//-----------------------------------------------------------------------------{
+price = close // input(close,                         "Source",    inline= "00") 
+wavesizetype_ = string('ATR')
+wavesizetype = wavesizetype_ == '① Fixed' ? 1 : wavesizetype_ == '② ATR' ? 2 : 3
+fixedwave = float(.000800000000)
+atrfactor = float(1.5)
+atrlength = int(20)
+Yspacing = 0 // input.float(0.0,                           ' 》Text Spacing',                           inline="02", group=g0)
+labelcount = 0
+show_zigzag = input.bool(true, 'Zigzag   ', inline = '04', group = g0) // U+2004 and U+2003
+zigzagtype_ = 'WV Color' // input.string('WV Color',                   'ZigZag',                                    inline='04', group=g0, options=['None', 'Normal Color', 'WV Color'])
+zigzagtype = show_zigzag ? zigzagtype_ == 'Normal Color' ? 2 : 4 : 0
+zigzagUpclr = input.color(color.new(color.green, 25), '', inline = '04', group = g0)
+zigzagDnclr = input.color(color.new(color.red, 25), '', inline = '04', group = g0)
+zigzagwidth = int(3)
+upwaveboxclr = input.color(color.new(#9598a1, 80), '', inline = 'aa', group = g0)
+dnwaveboxclr = input.color(color.new(#1848cc, 80), '', inline = 'aa', group = g0)
+showVol = 0
+wavechoice_ = 0
+wavechoice = 0
+v = 0
+showER = 0
+vv = 0
+avgtype_ = 0
+decimal = 0
+Maxwave2 = 0
+MaxUpwave = int(5)
+MaxDnwave = MaxUpwave // input.int(5,                        '',                                       inline='50', group=g4, minval=1, maxval=25)
+Maxmark = 0
+MaxUpmark = 0
+MaxDnmark = 0
+
+//-----------------------------------------------------------------------------}
+//Global variables
+//-----------------------------------------------------------------------------{
+atrwave = atrfactor * ta.atr(atrlength)
+
+float hi = na
+float lo = na
+int trend = 0
+int trend_hi = na
+int TUoplimbo = na
+int TDoplimbo = na
+float TUoplimboVol = na
+float TDoplimboVol = na
+int TUcount = na
+int TDcount = na
+float TUcountVol = na
+float TDcountVol = na
+bool lineMaxHwER = false
+bool lineMaxLwER = false
+var array<int> HwT = array.new_int(MaxUpwave, na)
+var array<int> LwT = array.new_int(MaxDnwave, na)
+var array<float> Hw = array.new_float(MaxUpwave, na)
+var array<float> HwHigh = array.new_float(MaxUpwave, na) // to SOT
+var array<float> Lw = array.new_float(MaxDnwave, na)
+var array<float> LwLow = array.new_float(MaxDnwave, na) // to SOT
+var array<float> HwV = array.new_float(MaxUpwave, na)
+var array<float> LwV = array.new_float(MaxDnwave, na)
+var array<float> HwP = array.new_float(MaxUpwave, na)
+var array<float> LwP = array.new_float(MaxDnwave, na)
+var array<float> HwER = array.new_float(MaxUpwave, na)
+var array<float> LwER = array.new_float(MaxDnwave, na)
+var array<float> devHw = array.new_float()
+var array<float> devLw = array.new_float()
+var array<bool> MaxHwIndex = array.new_bool(MaxUpwave, bool(na))
+var array<bool> MaxLwIndex = array.new_bool(MaxDnwave, bool(na))
+var array<line> zig = array.new_line()
+var color zigclr = color(na)
+
+Rangebartime = wavechoice == 2 ? timeframe.isintraday ? time_close / 60000 - time / 60000 : timeframe.isdaily ? time_close / 3600000 - time / 3600000 : timeframe.isdwm ? 1 : na : na
+volumme = volume
+
+// wave function
+minrange = wavesizetype == 1 ? fixedwave : nz(atrwave[1])
+preloTop = nz(lo[1]) + minrange // ATR version is not fixed minrange, so sometimes strange wave point is selected.
+prehiBtm = nz(hi[1]) - minrange
+Diff_ = preloTop - prehiBtm 
+Diff = Diff_ > 0 ? Diff_ : 0 // need !! 
+
+hi := price >= preloTop and (price >= prehiBtm + Diff and price[1] <= preloTop - Diff
+  or price[1] <= preloTop and nz(hi[1]) - nz(lo[1]) < 2 * minrange and trend[1] == -1
+  or price >= prehiBtm + Diff and price[1] <= preloTop - Diff and trend == 1) ? price 
+  : price >= prehiBtm ? math.max(price, nz(hi[1])) // need 
+  : price >= preloTop and (nz(trend_hi[1]) == -2 or nz(trend_hi[1]) == -1) ? price 
+  : nz(hi[1]) 
+
+hiBtm = nz(hi) - minrange
+trend_lo = price >= hiBtm ? 2 
+  : price >= preloTop ? 1 
+  : price <= preloTop ? -1 
+  : price <= hiBtm ? -2 
+  : na
+
+lo := price <= hiBtm and (price <= preloTop - Diff and price[1] >= hiBtm + Diff
+  or price[1] > hiBtm and hi - nz(lo[1]) < 2 * minrange and trend[1] == 1) ? price 
+  : price <= preloTop ? math.min(price, nz(lo[1])) // need
+  : price <= hiBtm and (nz(trend_lo) == 2 or nz(trend_lo) == 1) ? price 
+  : nz(lo[1])
+
+loTop = nz(lo) + minrange
+trend_hi := price >= hiBtm ? 2 
+  : price >= loTop ? 1 
+  : price <= loTop ? -1 
+  : price <= hiBtm ? -2 
+  : na 
+ 
+trend := hi != hi[1] or hi == price and trend[1] == -1 ? 1 
+  : lo != lo[1] or lo == price and trend[1] == 1 ? -1 
+  : lo != price and trend[1] == 1 ? 1  
+  : hi != price and trend[1] == -1 ? -1 
+  : na 
+
+trendup = trend == 1
+trenddown = trend == -1
+pretrendup = trend[1] == 1
+pretrenddown = trend[1] == -1
+
+changetrend = trendup and pretrenddown ? 1 
+  : trenddown and pretrenddown ? -2 
+  : trendup and pretrendup ? 2 
+  : trenddown and pretrendup ? -1 
+  : na
+
+TUoplimbo    := price < nz(hi) and trendup ? nz(TUoplimbo[1]) + 1 : changetrend == 1 ? nz(TUoplimbo[1]) : 0 
+TUoplimboVol := nz(TUoplimbo) == 0 ? 0 : nz(TUoplimbo) >= 1 ? nz(TUoplimboVol[1]) + volumme : na 
+TDoplimbo    := price > nz(lo) and trenddown ? nz(TDoplimbo[1]) + 1 : changetrend == -1 ? nz(TDoplimbo[1]) : 0
+TDoplimboVol := nz(TDoplimbo) == 0 ? 0 : nz(TDoplimbo) >= 1 ? nz(TDoplimboVol[1]) + volumme : na 
+
+// use limbo counts to calc volume, bar count and delta price
+TUcount := changetrend == 1 ? 1 + nz(TDoplimbo[1]) 
+  : changetrend == -1 ? na // when TUcount is na , other TU are 0
+  : changetrend == 2 ? nz(TUcount[1]) + 1 
+  : 0 // when changetrend == -2 
+
+TDcount := changetrend == -1 ? 1 + nz(TUoplimbo[1]) 
+  : changetrend == 1 ? na 
+  : changetrend == -2 ? nz(TDcount[1]) + 1 
+  : 0 // when changetrend == 2
+
+TUcountVol := nz(TDoplimbo) == 0 and nz(TUcount) == 0 ? 0 
+  : nz(TDoplimbo) >= 1 and nz(TUcount) == 0 or nz(TDoplimbo[1]) >= 1 and nz(TUcount) >= 1 and changetrend == 1 ? nz(TUcountVol[1]) + volumme 
+  : nz(TDoplimbo[1]) == 0 and nz(TUcount) >= 1 and changetrend == 1 ? volumme 
+  : nz(TDoplimbo[1]) == 0 and nz(TUcount) >= 1 and changetrend == 2 ? nz(TUcountVol[1]) + volumme 
+  : na
+
+TDcountVol := nz(TUoplimbo) == 0 and nz(TDcount) == 0 ? 0 
+  : nz(TUoplimbo) >= 1 and nz(TDcount) == 0 or nz(TUoplimbo[1]) >= 1 and nz(TDcount) >= 1 and changetrend == -1 ? nz(TDcountVol[1]) + volumme 
+  : nz(TUoplimbo[1]) == 0 and nz(TDcount) >= 1 and changetrend == -1 ? volumme 
+  : nz(TUoplimbo[1]) == 0 and nz(TDcount) >= 1 and changetrend == -2 ? nz(TDcountVol[1]) + volumme 
+  : na
+
+/////////////////////////////////  current wave  //////////////////////////////
+HwV_ = TUcountVol - TUoplimboVol // TDcountVol // for developing wave  
+plotvolup = changetrend == -1 ? HwV_[1] : na // for confirmed wave //TUcountVol[1] - TUoplimboVol[1] : na
+LwV_ = TDcountVol - TDoplimboVol // TUcountVol
+plotvoldown = changetrend == 1 ? math.abs(LwV_[1]) : na
+
+var devzigclr = color(na)
+int waveERbox = 0
+bool devUpVolalert = false
+bool devUpPalert = false
+bool devDnVolalert = false
+bool devDnPalert = false
+var devzig = line.new(na, na, na, na, width = zigzagwidth, style = line.style_dotted, force_overlay = true)
+var devbox = box.new(na, na, na, na, border_color = color(na), border_width = zigzagwidth, border_style = line.style_dotted, bgcolor = color(na))
+devUp = changetrend == -1 or changetrend == 2 // UpDn
+
+if devUp
+    devP_ = close[TUoplimbo] - array.get(Lw, 0)
+    line.set_xy1(devzig, array.get(LwT, 0), array.get(Lw, 0))
+
+    if show_zigzag
+        devzigclr := HwV_ > array.get(LwV, 0) ? zigzagUpclr : zigzagDnclr
+
+    if not na(TUcount)
+
+        line.set_xy2(devzig, bar_index[TUoplimbo], close[TUoplimbo])
+        line.set_color(devzig, devzigclr)
+
+//-----------------------------------------------------------------------------}
+// Calculation
+//-----------------------------------------------------------------------------{
+
+if barstate.isconfirmed
+    // up wave
+    if plotvolup > 0
+        limboupnumber = TUoplimbo[1] + 1
+
+        array.unshift(HwT, bar_index[limboupnumber]) // up wave time to DC div and down wave zigzag
+        array.unshift(Hw, close[limboupnumber]) // up wave pivot to Bias, CP, 3d, UT, Clx CiB and so.... 
+        array.unshift(HwHigh, high[limboupnumber]) // up wave pivot high to SOT and UT
+        array.unshift(HwV, plotvolup) // up wave volume to many......
+        array.unshift(HwP, math.abs(close[limboupnumber] - array.get(Lw, 0)))
+        array.unshift(HwER, plotvolup / math.abs(close[limboupnumber] - array.get(Lw, 0))) // up ER
+
+        if zigzagtype != 0
+            zigclr = zigzagtype == 4 ? array.get(HwV, 0) > array.get(LwV, 0) ? zigzagUpclr : zigzagDnclr : zigzagUpclr
+            array.unshift(zig, line.new(array.get(LwT, 0), array.get(Lw, 0), bar_index[limboupnumber], close[limboupnumber]
+              , color = zigclr, width = zigzagwidth, force_overlay = true))
+
+    // down wave 
+    if plotvoldown > 0
+
+        limbodownnumber = TDoplimbo[1] + 1
+
+        // unshift new value
+        array.unshift(LwT, bar_index[limbodownnumber])
+        array.unshift(Lw, close[limbodownnumber])
+        array.unshift(LwLow, low[limbodownnumber])
+        array.unshift(LwV, plotvoldown)
+        array.unshift(LwP, math.abs(close[limbodownnumber] - array.get(Hw, 0)))
+        array.unshift(LwER, plotvoldown / math.abs(close[limbodownnumber] - array.get(Hw, 0)))
+
+        if zigzagtype != 0
+            zigclr = zigzagtype == 4 ? array.get(LwV, 0) > array.get(HwV, 0) ? zigzagDnclr : zigzagUpclr : zigzagDnclr
+            array.unshift(zig, line.new(array.get(HwT, 0), array.get(Hw, 0), bar_index[limbodownnumber], close[limbodownnumber]
+              , color = zigclr, width = zigzagwidth, force_overlay = true))
+
